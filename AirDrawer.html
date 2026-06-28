@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smooth Neon Air Drawing App</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #121212;
+            color: #ffffff;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+        }
+
+        #ui-container {
+            position: absolute;
+            top: 20px;
+            z-index: 10;
+            background: rgba(30, 30, 30, 0.85);
+            backdrop-filter: blur(10px);
+            padding: 12px 25px;
+            border-radius: 12px;
+            display: flex;
+            gap: 18px;
+            align-items: center;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            flex-wrap: wrap;
+            max-width: 92vw;
+            justify-content: center;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        label {
+            font-size: 13px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        input[type="color"] {
+            -webkit-appearance: none;
+            border: none;
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            cursor: pointer;
+            background: none;
+        }
+
+        input[type="color"]::-webkit-color-swatch {
+            border: 2px solid #fff;
+            border-radius: 50%;
+        }
+
+        input[type="range"] {
+            width: 90px;
+        }
+
+        input[type="color"]:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        /* Toggle switch for Rainbow Mode */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 42px;
+            height: 22px;
+        }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider-toggle {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #555;
+            transition: .25s;
+            border-radius: 22px;
+        }
+        .slider-toggle:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .25s;
+            border-radius: 50%;
+        }
+        .switch input:checked + .slider-toggle {
+            background: linear-gradient(90deg, red, orange, yellow, green, blue, violet);
+        }
+        .switch input:checked + .slider-toggle:before {
+            transform: translateX(20px);
+        }
+
+        button.tool-btn {
+            background: #2a2a2a;
+            color: #fff;
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 8px;
+            padding: 8px 14px;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.15s;
+        }
+        button.tool-btn:hover {
+            background: #3a3a3a;
+            transform: translateY(-1px);
+        }
+        button.tool-btn:active {
+            transform: translateY(0);
+        }
+        button.tool-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        #status-badge {
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            background: #444;
+            white-space: nowrap;
+        }
+
+        .status-draw { background: #00ffcc !important; color: #000; box-shadow: 0 0 12px #00ffcc; }
+        .status-spray { background: #cc66ff !important; color: #000; box-shadow: 0 0 12px #cc66ff; }
+        .status-clear { background: #ff0055 !important; color: #fff; box-shadow: 0 0 12px #ff0055; }
+        .status-pause { background: #ffcc00 !important; color: #000; box-shadow: 0 0 12px #ffcc00; }
+
+        #canvas-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        canvas, video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* Mirrors webcam view naturally */
+        }
+
+        video {
+            opacity: 0.15;
+            pointer-events: none;
+            transition: opacity 0.15s linear;
+        }
+
+        #paintCanvas {
+            z-index: 2;
+        }
+
+        #toast {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            background: rgba(20,20,20,0.9);
+            color: #fff;
+            padding: 10px 22px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: bold;
+            z-index: 20;
+            opacity: 0;
+            transition: opacity 0.25s, transform 0.25s;
+            pointer-events: none;
+            border: 1px solid rgba(255,255,255,0.15);
+        }
+        #toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui-container">
+        <div class="control-group">
+            <label for="colorPicker">Color</label>
+            <input type="color" id="colorPicker" value="#00ffcc">
+        </div>
+
+        <div class="control-group">
+            <label for="rainbowToggle">🌈 Rainbow</label>
+            <label class="switch">
+                <input type="checkbox" id="rainbowToggle">
+                <span class="slider-toggle"></span>
+            </label>
+        </div>
+
+        <div class="control-group">
+            <label for="brushThickness">Size</label>
+            <input type="range" id="brushThickness" min="5" max="40" value="15">
+        </div>
+
+        <div class="control-group">
+            <label for="bgGlow">🌙 BG Glow</label>
+            <input type="range" id="bgGlow" min="0" max="100" value="15">
+        </div>
+
+        <div class="control-group">
+            <button id="undoBtn" class="tool-btn" title="Undo (Ctrl+Z)">↩️ Undo</button>
+            <button id="redoBtn" class="tool-btn" title="Redo (Ctrl+Y)">↪️ Redo</button>
+        </div>
+
+        <div class="control-group">
+            <button id="saveBtn" class="tool-btn" title="Download PNG">🖼️ Save</button>
+        </div>
+
+        <div id="status-badge">Initializing Camera...</div>
+    </div>
+
+    <div id="canvas-container">
+        <video id="webcam" autoplay playsinline></video>
+        <canvas id="paintCanvas"></canvas>
+    </div>
+
+    <div id="toast"></div>
+
+    <script>
+        const video = document.getElementById("webcam");
+        const canvas = document.getElementById("paintCanvas");
+        const ctx = canvas.getContext("2d");
+
+        const colorPicker = document.getElementById("colorPicker");
+        const brushThickness = document.getElementById("brushThickness");
+        const statusBadge = document.getElementById("status-badge");
+        const rainbowToggle = document.getElementById("rainbowToggle");
+        const bgGlowSlider = document.getElementById("bgGlow");
+        const undoBtn = document.getElementById("undoBtn");
+        const redoBtn = document.getElementById("redoBtn");
+        const saveBtn = document.getElementById("saveBtn");
+        const toastEl = document.getElementById("toast");
+
+        // ---------- Toast helper ----------
+        let toastTimer = null;
+        function showToast(msg) {
+            toastEl.innerText = msg;
+            toastEl.classList.add('show');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1400);
+        }
+
+        // ---------- Mathematical Smoothing Coordinates (EMA Filter) ----------
+        let smoothedX = null;
+        let smoothedY = null;
+        const SMOOTHING_FACTOR = 0.22; // Lower = fluid trails / Higher = faster tracking
+
+        const config = {
+            color: colorPicker.value,
+            size: brushThickness.value,
+            mode: 'pause',
+            rainbow: false,
+            hue: 0
+        };
+
+        colorPicker.addEventListener('input', (e) => config.color = e.target.value);
+        brushThickness.addEventListener('input', (e) => config.size = e.target.value);
+
+        // ---------- Feature 2: Rainbow Mode ----------
+        rainbowToggle.addEventListener('change', (e) => {
+            config.rainbow = e.target.checked;
+            colorPicker.disabled = config.rainbow;
+            showToast(config.rainbow ? "🌈 Rainbow Mode ON" : "Rainbow Mode OFF");
+        });
+
+        // ---------- Feature 3: Background Glow Intensity ----------
+        bgGlowSlider.addEventListener('input', (e) => {
+            video.style.opacity = (e.target.value / 100).toFixed(2);
+        });
+
+        function resizeCanvas() {
+            // Preserve current drawing across resizes
+            const prevData = canvas.width > 0 ? ctx.getImageData(0, 0, canvas.width, canvas.height) : null;
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            if (prevData) {
+                ctx.putImageData(prevData, 0, 0);
+            }
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        function getDistance(pt1, pt2) {
+            return Math.hypot(pt1.x - pt2.x, pt1.y - pt2.y);
+        }
+
+        // ---------- Feature 4: Undo / Redo ----------
+        const undoStack = [];
+        const redoStack = [];
+        const MAX_HISTORY = 25;
+
+        function pushHistorySnapshot() {
+            try {
+                // Don't push a duplicate of the most recent state
+                undoStack.push(canvas.toDataURL());
+                if (undoStack.length > MAX_HISTORY) undoStack.shift();
+                redoStack.length = 0; // new action invalidates redo history
+                updateUndoRedoButtons();
+            } catch (err) {
+                console.error("History snapshot failed:", err);
+            }
+        }
+
+        function restoreFromDataUrl(dataUrl, onDone) {
+            const img = new Image();
+            img.onload = () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                if (onDone) onDone();
+            };
+            img.src = dataUrl;
+        }
+
+        function performUndo() {
+            if (undoStack.length === 0) return;
+            // Save current state to redo before reverting
+            redoStack.push(canvas.toDataURL());
+            const prevState = undoStack.pop();
+            restoreFromDataUrl(prevState);
+            updateUndoRedoButtons();
+            showToast("↩️ Undo");
+        }
+
+        function performRedo() {
+            if (redoStack.length === 0) return;
+            undoStack.push(canvas.toDataURL());
+            const nextState = redoStack.pop();
+            restoreFromDataUrl(nextState);
+            updateUndoRedoButtons();
+            showToast("↪️ Redo");
+        }
+
+        function updateUndoRedoButtons() {
+            undoBtn.disabled = undoStack.length === 0;
+            redoBtn.disabled = redoStack.length === 0;
+        }
+        updateUndoRedoButtons();
+
+        undoBtn.addEventListener('click', performUndo);
+        redoBtn.addEventListener('click', performRedo);
+
+        window.addEventListener('keydown', (e) => {
+            const ctrlOrCmd = e.ctrlKey || e.metaKey;
+            if (!ctrlOrCmd) return;
+            if (e.key.toLowerCase() === 'z' && !e.shiftKey) {
+                e.preventDefault();
+                performUndo();
+            } else if (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey)) {
+                e.preventDefault();
+                performRedo();
+            }
+        });
+
+        // A stroke is "in progress" while mode === 'draw' or 'spray'.
+        // We snapshot once when a stroke STARTS (so undo reverts the whole stroke),
+        // not on every frame.
+        let strokeActive = false;
+
+        function maybeStartStroke() {
+            if (!strokeActive) {
+                pushHistorySnapshot();
+                strokeActive = true;
+            }
+        }
+
+        function endStrokeIfNeeded() {
+            strokeActive = false;
+        }
+
+        // ---------- Feature 1: Save / Download Artwork ----------
+        saveBtn.addEventListener('click', () => {
+            // Composite the mirrored video feed + the drawing so the snapshot looks like what's on screen
+            const exportCanvas = document.createElement('canvas');
+            exportCanvas.width = canvas.width;
+            exportCanvas.height = canvas.height;
+            const exportCtx = exportCanvas.getContext('2d');
+
+            // Fill a black background first (in case glow is at 0 and video is transparent at edges)
+            exportCtx.fillStyle = '#000000';
+            exportCtx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+
+            // Draw mirrored video feed at current opacity
+            exportCtx.save();
+            exportCtx.globalAlpha = parseFloat(video.style.opacity || "0.15");
+            exportCtx.translate(exportCanvas.width, 0);
+            exportCtx.scale(-1, 1);
+            try {
+                exportCtx.drawImage(video, 0, 0, exportCanvas.width, exportCanvas.height);
+            } catch (err) {
+                // If video frame isn't drawable for any reason, just skip it
+            }
+            exportCtx.restore();
+
+            // Draw the neon artwork on top (already mirrored via CSS, but canvas pixel data is unmirrored,
+            // so mirror it the same way for visual consistency with what the user sees)
+            exportCtx.save();
+            exportCtx.translate(exportCanvas.width, 0);
+            exportCtx.scale(-1, 1);
+            exportCtx.drawImage(canvas, 0, 0, exportCanvas.width, exportCanvas.height);
+            exportCtx.restore();
+
+            const link = document.createElement('a');
+            link.download = `neon-art-${Date.now()}.png`;
+            link.href = exportCanvas.toDataURL('image/png');
+            link.click();
+            showToast("🖼️ Snapshot saved!");
+        });
+
+        // ---------- Feature 5: Multi-Finger Tool Selection ----------
+        // index only -> 'draw'
+        // index + middle (victory sign) -> 'spray'
+        // open palm -> 'clear'
+        // closed fist -> 'pause'
+        function analyzeGesture(landmarks) {
+            const wrist = landmarks[0];
+
+            const isIndexExtended = getDistance(landmarks[8], wrist) > getDistance(landmarks[5], wrist);
+            const isMiddleExtended = getDistance(landmarks[12], wrist) > getDistance(landmarks[9], wrist);
+            const isRingExtended = getDistance(landmarks[16], wrist) > getDistance(landmarks[13], wrist);
+            const isPinkyExtended = getDistance(landmarks[20], wrist) > getDistance(landmarks[17], wrist);
+
+            // Open Palm -> Instantly Wipe Screen Clear
+            if (isIndexExtended && isMiddleExtended && isRingExtended && isPinkyExtended) {
+                return 'clear';
+            }
+            // Closed Fist -> Pause Tracking lines
+            else if (!isIndexExtended && !isMiddleExtended && !isRingExtended && !isPinkyExtended) {
+                return 'pause';
+            }
+            // Victory sign (index + middle, ring & pinky curled) -> Spray-paint dual stream
+            else if (isIndexExtended && isMiddleExtended && !isRingExtended && !isPinkyExtended) {
+                return 'spray';
+            }
+            // One Pointer Finger -> Active Neon Drawing
+            else if (isIndexExtended && !isMiddleExtended) {
+                return 'draw';
+            }
+            return 'pause';
+        }
+
+        function currentDrawColor() {
+            if (config.rainbow) {
+                config.hue = (config.hue + 2.5) % 360;
+                return `hsl(${config.hue}, 100%, 55%)`;
+            }
+            return config.color;
+        }
+
+        // Handle incoming data frames from MediaPipe tracking pipeline
+        function onResults(results) {
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const handLandmarks = results.multiHandLandmarks[0];
+                config.mode = analyzeGesture(handLandmarks);
+
+                statusBadge.innerText = config.mode === 'clear' ? 'Clearing Screen' : config.mode;
+                statusBadge.className = `status-${config.mode}`;
+
+                const indexTip = handLandmarks[8];
+                const rawTargetX = indexTip.x * canvas.width;
+                const rawTargetY = indexTip.y * canvas.height;
+
+                if (config.mode === 'draw' || config.mode === 'spray') {
+                    maybeStartStroke();
+
+                    if (smoothedX === null || smoothedY === null) {
+                        smoothedX = rawTargetX;
+                        smoothedY = rawTargetY;
+                    } else {
+                        smoothedX = smoothedX + SMOOTHING_FACTOR * (rawTargetX - smoothedX);
+                        smoothedY = smoothedY + SMOOTHING_FACTOR * (rawTargetY - smoothedY);
+                    }
+
+                    const drawColor = currentDrawColor();
+
+                    if (config.mode === 'draw') {
+                        drawNeonLine(smoothedX, smoothedY, drawColor);
+                    } else {
+                        // Spray mode: use middle finger tip too, for a dual parallel stream + speckle spray
+                        const middleTip = handLandmarks[12];
+                        const rawMidX = middleTip.x * canvas.width;
+                        const rawMidY = middleTip.y * canvas.height;
+                        drawSprayEffect(smoothedX, smoothedY, rawMidX, rawMidY, drawColor);
+                    }
+                } else if (config.mode === 'clear') {
+                    if (canvas.width > 0 && canvas.height > 0) {
+                        // Only snapshot if there's something on the canvas worth saving for undo
+                        pushHistorySnapshot();
+                    }
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    smoothedX = null;
+                    smoothedY = null;
+                    endStrokeIfNeeded();
+                } else {
+                    smoothedX = null;
+                    smoothedY = null;
+                    endStrokeIfNeeded();
+                }
+            } else {
+                smoothedX = null;
+                smoothedY = null;
+                endStrokeIfNeeded();
+                statusBadge.innerText = "No Hand Detected";
+                statusBadge.className = "";
+            }
+        }
+
+        function drawNeonLine(targetX, targetY, color) {
+            if (ctx.prevX === undefined || ctx.prevY === undefined) {
+                ctx.prevX = targetX;
+                ctx.prevY = targetY;
+                return;
+            }
+
+            ctx.save();
+
+            // Outer Vivid Neon Bloom Blurring
+            ctx.shadowBlur = config.size * 1.4;
+            ctx.shadowColor = color;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = config.size;
+
+            ctx.beginPath();
+            ctx.moveTo(ctx.prevX, ctx.prevY);
+            ctx.lineTo(targetX, targetY);
+            ctx.stroke();
+
+            // Inner high-intensity Core Thread
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = config.size * 0.22;
+
+            ctx.beginPath();
+            ctx.moveTo(ctx.prevX, ctx.prevY);
+            ctx.lineTo(targetX, targetY);
+            ctx.stroke();
+
+            ctx.restore();
+
+            ctx.prevX = targetX;
+            ctx.prevY = targetY;
+        }
+
+        // Spray-paint / dual-stream effect for the victory-sign gesture.
+        // Draws a thinner dual line between index & middle fingertips, plus
+        // scattered speckle particles for a spray-can feel.
+        function drawSprayEffect(idxX, idxY, midX, midY, color) {
+            if (ctx.prevIdxX === undefined) {
+                ctx.prevIdxX = idxX;
+                ctx.prevIdxY = idxY;
+                ctx.prevMidX = midX;
+                ctx.prevMidY = midY;
+                return;
+            }
+
+            ctx.save();
+
+            // Dual parallel neon stream (index path + middle path)
+            ctx.shadowBlur = config.size * 1.1;
+            ctx.shadowColor = color;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = Math.max(2, config.size * 0.45);
+
+            ctx.beginPath();
+            ctx.moveTo(ctx.prevIdxX, ctx.prevIdxY);
+            ctx.lineTo(idxX, idxY);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(ctx.prevMidX, ctx.prevMidY);
+            ctx.lineTo(midX, midY);
+            ctx.stroke();
+
+            // Speckle spray particles around the midpoint between the two fingertips
+            const midpointX = (idxX + midX) / 2;
+            const midpointY = (idxY + midY) / 2;
+            const spread = config.size * 1.2;
+            ctx.shadowBlur = config.size * 0.8;
+
+            for (let i = 0; i < 6; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const radius = Math.random() * spread;
+                const px = midpointX + Math.cos(angle) * radius;
+                const py = midpointY + Math.sin(angle) * radius;
+                const dotSize = Math.max(1, Math.random() * config.size * 0.18);
+
+                ctx.beginPath();
+                ctx.fillStyle = color;
+                ctx.arc(px, py, dotSize, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            ctx.restore();
+
+            ctx.prevIdxX = idxX;
+            ctx.prevIdxY = idxY;
+            ctx.prevMidX = midX;
+            ctx.prevMidY = midY;
+        }
+
+        // Reset brush anchors dynamically when transitioning out of draw operations
+        setInterval(() => {
+            if (config.mode !== 'draw') {
+                ctx.prevX = undefined;
+                ctx.prevY = undefined;
+            }
+            if (config.mode !== 'spray') {
+                ctx.prevIdxX = undefined;
+                ctx.prevIdxY = undefined;
+                ctx.prevMidX = undefined;
+                ctx.prevMidY = undefined;
+            }
+        }, 30);
+
+        // Instantiate and activate the classic MediaPipe Hands pipeline module
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.6,
+            minTrackingConfidence: 0.6
+        });
+
+        hands.onResults(onResults);
+
+        const camera = new Camera(video, {
+            onFrame: async () => {
+                await hands.send({ image: video });
+            },
+            width: 1280,
+            height: 720
+        });
+
+        camera.start().then(() => {
+            statusBadge.innerText = "Ready";
+        });
+    </script>
+</body>
+</html>
